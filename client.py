@@ -3,6 +3,7 @@ import threading
 import socket
 import sys
 from random import choice
+from datetime import datetime
 from PyQt6.QtWidgets import QWidget, QApplication, QPushButton, QLabel, QLineEdit, QVBoxLayout, QMessageBox, QListWidgetItem, QHBoxLayout, QListWidget, QFrame
 from PyQt6.QtCore import Qt
 from os import getcwd, path
@@ -37,7 +38,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect(('192.168.1.31', 9100))
+        self.sock.connect(('192.168.1.188', 9100)) # CHANGE IP
         self.init_login_ui()
 
     def init_login_ui(self):
@@ -65,7 +66,7 @@ class MainWindow(QWidget):
         login_button.clicked.connect(self.send_login_application)
         self.layout.addWidget(login_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        register_button = QPushButton('Create an account')
+        register_button = QPushButton('Sign up')
         register_button.setFixedWidth(170)
         register_button.clicked.connect(lambda: self.send_login_application(True))
         self.layout.addWidget(register_button, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -136,12 +137,12 @@ class MainWindow(QWidget):
         self.msg_input.setStyleSheet('border: 1px solid #333; border-radius: 10px; padding: 10px; background: #1b1b1b;')
 
         # ОБРАБОТКА ENTER
-        self.msg_input.returnPressed.connect(self.display_message)
+        self.msg_input.returnPressed.connect(lambda: self.send_message(self.msg_input.text(), self.chat_header.text()))
 
         self.send_btn = QPushButton('Send')
         self.send_btn.setFixedSize(110, 40)
         self.send_btn.setStyleSheet('background-color: #1b1b1b; border: 1px solid #333; border-radius: 8px;')
-        self.send_btn.clicked.connect(self.display_message)
+        self.send_btn.clicked.connect(lambda: self.send_message(self.msg_input.text(), self.chat_header.text()))
 
         self.input_layout.addWidget(self.msg_input)
         self.input_layout.addWidget(self.send_btn)
@@ -161,18 +162,21 @@ class MainWindow(QWidget):
         if len(login) > 32 or len(password) > 32 or len(login) == 0 or len(password) == 0:
             QMessageBox.critical(None, 'FAIL', 'Username and password must be between 1 and 32 characters.')
             return
-        self.send_message(f'{login}:{password};{'register' if new_account else 'login'}', 128)
-        data = self.get_message(128)
+        self.send_inform_to_server(f'{login}:{password};{"register" if new_account else "login"}', 128)
+        data = self.get_inform_form_server(128)
         if data == 'SUCCESS':
             # QMessageBox.information(None, 'SUCCESS', data)
+            self.username = login
             self.launch()
         else:
             QMessageBox.critical(None, 'FAIL', data[data.find(';'):])
 
     def launch(self):
-        self.get_file('data.json')
-        with open('data/data.json', encoding='utf-8') as f:
+        self.get_file()
+        with open(f'data/{self.username}.json', encoding='utf-8') as f:
             self.messages = json.load(f)
+        getting_cycle_thread = threading.Thread(target=self.getting_cycle, args=())
+        getting_cycle_thread.start()
         self.init_main_ui()
 
     def change_companion(self):
@@ -181,11 +185,11 @@ class MainWindow(QWidget):
             self.display_message(i[0], i[1])
         self.chat_header.setText(self.contacts.currentItem().text())
 
-    def send_message(self, mess: str, buff: int) -> None:
+    def send_inform_to_server(self, mess: str, buff: int) -> None:
         mess = f'{mess};'.encode('utf-8')
         self.sock.send(mess + bytearray(buff - len(mess)))
 
-    def get_message(self, buff: int) -> str:
+    def get_inform_form_server(self, buff: int) -> str:
         mess = self.sock.recv(buff).decode('utf-8')
         mess = mess[:mess.rfind(';')]
         return mess
@@ -196,7 +200,7 @@ class MainWindow(QWidget):
         :param file_name: file name with its extension <data.json>
         :return:
         '''
-        f_name, f_size = self.get_message(512).split(';')
+        f_name, f_size = self.get_inform_form_server(512).split(';')
         f_size = int(f_size)
         if file_name: f_name = file_name
         with open(f'{getcwd()}\\data\\{f_name}', 'wb') as f:
@@ -210,7 +214,7 @@ class MainWindow(QWidget):
         f_name = file_path[file_path.rfind('/'):]
         file_size = path.getsize(file_path)
         # file_name;file_size(bytes);\x00\x00\x00\x00...
-        self.send_message(f'{f_name};{file_size}', 512)
+        self.send_inform_to_server(f'{f_name};{file_size}', 512)
         with open(file_path, 'rb') as f:
             chunk = f.read(4096)
             while chunk:
@@ -237,6 +241,36 @@ class MainWindow(QWidget):
                 else:
                     # Recursively clear nested layouts
                     self.clear_layout(item.layout())
+
+    def send_message(self, message: str, to_user: str):
+        if to_user == 'Companion username':
+            QMessageBox.critical(None, 'FAIL', 'Please, choose a companion')
+            return
+        if len(message.encode('utf-8')) > 256:
+            QMessageBox.critical(None, 'FAIL', 'The message length cannot be more 256 bytes')
+            return
+        self.send_inform_to_server(f'MESSAGE;{self.username};{message};{to_user}', 512)
+        self.display_message(message)
+
+    def getting_cycle(self):
+        # Разобраться с тредами
+        while True:
+            data = self.get_inform_form_server(512)
+            print(data)
+            command, args = data[:data.find(';')], data[data.find(';') + 1:]
+            match command:
+                case 'MESSAGE':
+                    from_user, message, to_user = (args[:args.find(';')],
+                                                   args[args.find(';') + 1:args.rfind(';')],
+                                                   args[args.rfind(';') + 1:])
+                    if from_user not in self.messages:
+                        self.messages[from_user] = []
+                        self.contacts.addItem(from_user)
+                    self.messages[from_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    if self.chat_header == from_user:
+                        self.display_message(message, False)
+
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

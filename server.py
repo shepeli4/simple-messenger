@@ -1,7 +1,7 @@
 import threading
 import socket
 import json
-import datetime
+from datetime import datetime
 import os
 
 
@@ -75,7 +75,12 @@ class Server:
             elif data[data.rfind(';') + 1:] == 'register':
                 login = data[:data.find(':')]
                 password = data[data.find(':') + 1:data.find(';')]
-                if ';' in login: self.send_message(conn, 'FAIL;Username cannot contain the character ;', 128)
+                if 'Companion username' == login:
+                    self.send_message(conn, 'FAIL;This username is already taken', 128)
+                    continue
+                if ';' in login:
+                    self.send_message(conn, 'FAIL;Username cannot contain the character ;', 128)
+                    continue
                 if not login in list(self.users.keys()):
                     self.send_message(conn, 'SUCCESS', 128)
                     self.users[login] = password
@@ -94,8 +99,26 @@ class Server:
             command, args = data[:data.find(';')], data[data.find(';') + 1:]
             match command:
                 case 'MESSAGE':
-                    print(data)
-                    pass
+                    from_user, message, to_user = (args[:args.find(';')],
+                                                   args[args.find(';') + 1:args.rfind(';')],
+                                                   args[args.rfind(';') + 1:])
+                    for i in self.online_users[to_user]:
+                        self.send_message(conn, to_user, 512)
+
+                    with open(f'messages/{from_user}.json', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if to_user not in data: data[to_user] = []
+                    data[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    with open(f'messages/{from_user}.json', 'w', encoding='utf-8') as f:
+                        json.dump(data, f)
+
+                    with open(f'messages/{to_user}.json', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if from_user not in data: data[from_user] = []
+                    data[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    with open(f'messages/{to_user}.json', 'w', encoding='utf-8') as f:
+                        json.dump(data, f)
+
                 case 'EXIT':
                     conn.close()
                     # add deleting from self.online_users
