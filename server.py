@@ -68,6 +68,7 @@ class Server:
                 login = data[:data.find(':')]
                 password = data[data.find(':') + 1:data.find(';')]
                 if login in list(self.users.keys()) and self.users[login] == password:
+                    self.online_users[login].append(conn)
                     self.send_message(conn, 'SUCCESS', 128)
                     break
                 else:
@@ -84,7 +85,7 @@ class Server:
                 if not login in list(self.users.keys()):
                     self.send_message(conn, 'SUCCESS', 128)
                     self.users[login] = password
-                    self.online_users[login] = conn
+                    self.online_users[login] = [conn]
                     with open('users.json', 'w', encoding='utf-8') as f:
                         json.dump(self.users, f)
                     with open(f'messages\\{login}.json', 'w', encoding='utf-8') as f:
@@ -99,11 +100,15 @@ class Server:
             command, args = data[:data.find(';')], data[data.find(';') + 1:]
             match command:
                 case 'MESSAGE':
+                    # ПОЧИНИТЬ ОБРАБОТКУ СВОИХ СООБЩЕНИЙ(приходят на другой пк)
                     from_user, message, to_user = (args[:args.find(';')],
                                                    args[args.find(';') + 1:args.rfind(';')],
                                                    args[args.rfind(';') + 1:])
                     for i in self.online_users[to_user]:
-                        self.send_message(conn, to_user, 512)
+                        self.send_message(i, data, 512)
+                    for i in self.online_users[from_user]:
+                        if i != conn:
+                            self.send_message(i, data, 512)
 
                     with open(f'messages/{from_user}.json', encoding='utf-8') as f:
                         data = json.load(f)

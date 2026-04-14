@@ -5,7 +5,7 @@ import sys
 from random import choice
 from datetime import datetime
 from PyQt6.QtWidgets import QWidget, QApplication, QPushButton, QLabel, QLineEdit, QVBoxLayout, QMessageBox, QListWidgetItem, QHBoxLayout, QListWidget, QFrame
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from os import getcwd, path
 
 
@@ -35,6 +35,9 @@ class MessageBubble(QWidget):
 
 
 class MainWindow(QWidget):
+    # SIGNALS FOR THREADING
+    display_message_signal = pyqtSignal(str, bool)
+
     def __init__(self):
         super().__init__()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -96,7 +99,7 @@ class MainWindow(QWidget):
         self.settings_btn = QPushButton('Settings')
         self.settings_btn.setFixedHeight(45)
         self.settings_btn.setStyleSheet('QPushButton { border: 1px solid #333; margin: 5px; border-radius: 5px; } QPushButton:hover { background-color: #1b1b1b; }')
-        # self.settings_btn.clicked.connect(lambda: self.receive_message(self.msg_input.text().strip()))
+        self.settings_btn.clicked.connect(lambda: self.display_message(self.msg_input.text().strip(), False))
 
         self.contacts = QListWidget()
         self.contacts.addItems(list(self.messages.keys()))
@@ -175,6 +178,7 @@ class MainWindow(QWidget):
         self.get_file()
         with open(f'data/{self.username}.json', encoding='utf-8') as f:
             self.messages = json.load(f)
+        self.display_message_signal.connect(self.display_message)
         getting_cycle_thread = threading.Thread(target=self.getting_cycle, args=())
         getting_cycle_thread.start()
         self.init_main_ui()
@@ -222,6 +226,7 @@ class MainWindow(QWidget):
                 chunk = f.read(4096)
 
     def display_message(self, text, is_user=True):
+        print(text, is_user)
         if is_user: self.msg_input.clear()
         item = QListWidgetItem(self.chat_list)
         bubble = MessageBubble(text, is_user)
@@ -230,6 +235,7 @@ class MainWindow(QWidget):
         self.chat_list.addItem(item)
         self.chat_list.setItemWidget(item, bubble)
         self.chat_list.scrollToBottom()
+        print('end_func')
 
     def clear_layout(self, layout):
         if layout is not None:
@@ -253,23 +259,27 @@ class MainWindow(QWidget):
         self.display_message(message)
 
     def getting_cycle(self):
-        # Разобраться с тредами
         while True:
             data = self.get_inform_form_server(512)
             print(data)
             command, args = data[:data.find(';')], data[data.find(';') + 1:]
+            print(command, args)
             match command:
                 case 'MESSAGE':
+                    # ПОЧИНИТЬ ОБРАБОТКУ СВОИХ СООБЩЕНИЙ(приходят на другой пк)
+                    print('message')
                     from_user, message, to_user = (args[:args.find(';')],
                                                    args[args.find(';') + 1:args.rfind(';')],
                                                    args[args.rfind(';') + 1:])
-                    if from_user not in self.messages:
+                    if from_user not in self.messages and from_user != self.username:
                         self.messages[from_user] = []
                         self.contacts.addItem(from_user)
-                    self.messages[from_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
-                    if self.chat_header == from_user:
-                        self.display_message(message, False)
-
+                    self.messages[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    print(self.chat_header.text(), from_user)
+                    if self.chat_header.text() == from_user:
+                        self.display_message_signal.emit(message, False)
+                    if self.username == from_user and self.chat_header.text() == to_user:
+                        self.display_message_signal.emit(message)
 
 
 if __name__ == '__main__':
