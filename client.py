@@ -40,6 +40,7 @@ class MainWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.username = ''
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect(('192.168.1.188', 9100)) # CHANGE IP
         self.init_login_ui()
@@ -96,10 +97,28 @@ class MainWindow(QWidget):
         self.left_panel.setStyleSheet('border-right: 1px solid #333;')
         self.left_layout = QVBoxLayout(self.left_panel)
 
+        self.mini_panel = QFrame()
+        self.mini_panel.setFixedHeight(80)
+        self.mini_panel.setStyleSheet('border-right: none; border-bottom: 1px solid #333;')
+        self.mini_layout = QHBoxLayout(self.mini_panel)
+
+        self.find_user_input = QLineEdit()
+        self.find_user_input.setPlaceholderText('Enter username')
+        self.find_user_input.setStyleSheet('border: 1px solid #333; border-radius: 10px; padding: 10px; background: #1b1b1b;')
+        self.mini_layout.addWidget(self.find_user_input)
+
+        self.find_btn = QPushButton('Find')
+        self.find_btn.setFixedSize(60, 40)
+        self.find_btn.setStyleSheet('background-color: #1b1b1b; border: 1px solid #333; border-radius: 8px;')
+        self.find_btn.clicked.connect(self.find_user)
+        self.mini_layout.addWidget(self.find_btn)
+
+        '''
         self.settings_btn = QPushButton('Settings')
         self.settings_btn.setFixedHeight(45)
         self.settings_btn.setStyleSheet('QPushButton { border: 1px solid #333; margin: 5px; border-radius: 5px; } QPushButton:hover { background-color: #1b1b1b; }')
         self.settings_btn.clicked.connect(lambda: self.display_message(self.msg_input.text().strip(), False))
+        '''
 
         self.contacts = QListWidget()
         self.contacts.addItems(list(self.messages.keys()))
@@ -110,7 +129,8 @@ class MainWindow(QWidget):
                 ''')
         self.contacts.itemSelectionChanged.connect(self.change_companion)
 
-        self.left_layout.addWidget(self.settings_btn)
+        self.left_layout.addWidget(self.mini_panel)
+        # self.left_layout.addWidget(self.settings_btn)
         self.left_layout.addWidget(self.contacts)
 
         # --- ПРАВАЯ ПАНЕЛЬ ---
@@ -161,7 +181,6 @@ class MainWindow(QWidget):
 
     def send_login_application(self, new_account: bool = False):
         login, password = self.login_field.text(), self.password_field.text()
-        print(login, password)
         if len(login) > 32 or len(password) > 32 or len(login) == 0 or len(password) == 0:
             QMessageBox.critical(None, 'FAIL', 'Username and password must be between 1 and 32 characters.')
             return
@@ -179,14 +198,16 @@ class MainWindow(QWidget):
         with open(f'data/{self.username}.json', encoding='utf-8') as f:
             self.messages = json.load(f)
         self.display_message_signal.connect(self.display_message)
-        getting_cycle_thread = threading.Thread(target=self.getting_cycle, args=())
-        getting_cycle_thread.start()
+        self.getting_cycle_bool = True
+        self.getting_cycle_thread = threading.Thread(target=self.getting_cycle, args=())
+        self.getting_cycle_thread.start()
         self.init_main_ui()
 
     def change_companion(self):
         self.chat_list.clear()
-        for i in self.messages[self.contacts.currentItem().text()]:
-            self.display_message(i[0], i[1])
+        if self.contacts.currentItem().text() in self.messages:
+            for i in self.messages[self.contacts.currentItem().text()]:
+                self.display_message(i[0], i[1])
         self.chat_header.setText(self.contacts.currentItem().text())
 
     def send_inform_to_server(self, mess: str, buff: int) -> None:
@@ -226,7 +247,6 @@ class MainWindow(QWidget):
                 chunk = f.read(4096)
 
     def display_message(self, text, is_user=True):
-        print(text, is_user)
         if is_user: self.msg_input.clear()
         item = QListWidgetItem(self.chat_list)
         bubble = MessageBubble(text, is_user)
@@ -235,7 +255,6 @@ class MainWindow(QWidget):
         self.chat_list.addItem(item)
         self.chat_list.setItemWidget(item, bubble)
         self.chat_list.scrollToBottom()
-        print('end_func')
 
     def clear_layout(self, layout):
         if layout is not None:
@@ -258,28 +277,58 @@ class MainWindow(QWidget):
         self.send_inform_to_server(f'MESSAGE;{self.username};{message};{to_user}', 512)
         self.display_message(message)
 
+    def find_user(self):
+        if not self.find_user_input.text():
+            QMessageBox.critical(None, 'FAIL', 'User "" does not exist')
+            return
+        self.getting_cycle_bool = False
+        self.send_inform_to_server(f'FIND_USER;{self.find_user_input.text()}', 512)
+        data = self.get_inform_form_server(512)
+        if data == 'NONE':
+            data = self.get_inform_form_server(512)
+        if data == 'SUCCESS':
+            if self.find_user_input.text() not in [self.contacts.item(i).text() for i in range(self.contacts.count())]:
+                self.contacts.addItem(self.find_user_input.text())
+                self.contacts.scrollToBottom()
+            else:
+                QMessageBox.critical(None, 'FAIL', 'This user already your companion')
+            self.find_user_input.setText('')
+        else:
+            QMessageBox.critical(None, 'FAIL', data[data.find(';') + 1:])
+        self.getting_cycle_bool = True
+
+
+    def closeEvent(self, e):
+        if self.username:
+            self.send_inform_to_server(f'EXIT;{self.username}', 512)
+            self.getting_cycle_bool = False
+        e.accept()
+
     def getting_cycle(self):
-        while True:
+        while self.getting_cycle_bool:
             data = self.get_inform_form_server(512)
             print(data)
             command, args = data[:data.find(';')], data[data.find(';') + 1:]
-            print(command, args)
             match command:
                 case 'MESSAGE':
-                    # ПОЧИНИТЬ ОБРАБОТКУ СВОИХ СООБЩЕНИЙ(приходят на другой пк)
-                    print('message')
                     from_user, message, to_user = (args[:args.find(';')],
                                                    args[args.find(';') + 1:args.rfind(';')],
                                                    args[args.rfind(';') + 1:])
-                    if from_user not in self.messages and from_user != self.username:
-                        self.messages[from_user] = []
-                        self.contacts.addItem(from_user)
-                    self.messages[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
-                    print(self.chat_header.text(), from_user)
-                    if self.chat_header.text() == from_user:
-                        self.display_message_signal.emit(message, False)
-                    if self.username == from_user and self.chat_header.text() == to_user:
-                        self.display_message_signal.emit(message)
+                    if self.username != from_user:
+                        if from_user not in self.messages and from_user != self.username:
+                            self.messages[from_user] = []
+                            self.contacts.addItem(from_user)
+                        self.messages[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                        if self.chat_header.text() == from_user:
+                            self.display_message_signal.emit(message, False)
+                    else:
+                        self.messages[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                        if self.chat_header.text() == to_user:
+                            self.display_message_signal.emit(message, True)
+                case 'NONE':
+                    pass
+                case 'FAIL':
+                    QMessageBox.critical(None, 'FAIL', args)
 
 
 if __name__ == '__main__':

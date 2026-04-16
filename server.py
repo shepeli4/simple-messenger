@@ -100,7 +100,6 @@ class Server:
             command, args = data[:data.find(';')], data[data.find(';') + 1:]
             match command:
                 case 'MESSAGE':
-                    # ПОЧИНИТЬ ОБРАБОТКУ СВОИХ СООБЩЕНИЙ(приходят на другой пк)
                     from_user, message, to_user = (args[:args.find(';')],
                                                    args[args.find(';') + 1:args.rfind(';')],
                                                    args[args.rfind(';') + 1:])
@@ -125,9 +124,21 @@ class Server:
                         json.dump(data, f)
 
                 case 'EXIT':
+                    print(self.online_users)
+                    self.send_message(conn, 'NONE;', 512)
+                    self.online_users[args].remove(conn)
                     conn.close()
+                    print(self.online_users)
                     # add deleting from self.online_users
                     break
+
+                case 'FIND_USER':
+                    self.send_message(conn, 'NONE', 512)
+                    if args in self.users:
+                        self.send_message(conn, 'SUCCESS', 512)
+                    else:
+                        self.send_message(conn, 'FAIL;This user does not exist', 512)
+
                 case _:
                     self.send_message(conn, 'FAIL;Unknown command', 512)
 
