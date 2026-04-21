@@ -6,7 +6,7 @@ from random import choice
 from datetime import datetime
 from PyQt6.QtWidgets import QWidget, QApplication, QPushButton, QLabel, QLineEdit, QVBoxLayout, QMessageBox, QListWidgetItem, QHBoxLayout, QListWidget, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
-from os import getcwd, path
+from os import getcwd, path, listdir, remove
 
 
 class MessageBubble(QWidget):
@@ -155,6 +155,12 @@ class MainWindow(QWidget):
         self.input_area.setStyleSheet('border-top: 1px solid #333;')
         self.input_layout = QHBoxLayout(self.input_area)
 
+        # ДОДЕЛАТЬ ФАЙЛЫ
+        self.file_btn = QPushButton('File')
+        self.file_btn.setFixedSize(50, 40)
+        self.file_btn.setStyleSheet('background-color: #1b1b1b; border: 1px solid #333; border-radius: 8px;')
+        # self.file_btn.clicked.connect(lambda: self.send_message(self.msg_input.text(), self.chat_header.text()))
+
         self.msg_input = QLineEdit()
         self.msg_input.setPlaceholderText('Enter your message...')
         self.msg_input.setStyleSheet('border: 1px solid #333; border-radius: 10px; padding: 10px; background: #1b1b1b;')
@@ -167,6 +173,7 @@ class MainWindow(QWidget):
         self.send_btn.setStyleSheet('background-color: #1b1b1b; border: 1px solid #333; border-radius: 8px;')
         self.send_btn.clicked.connect(lambda: self.send_message(self.msg_input.text(), self.chat_header.text()))
 
+        self.input_layout.addWidget(self.file_btn)
         self.input_layout.addWidget(self.msg_input)
         self.input_layout.addWidget(self.send_btn)
 
@@ -199,6 +206,7 @@ class MainWindow(QWidget):
             self.messages = json.load(f)
         self.display_message_signal.connect(self.display_message)
         self.getting_cycle_bool = True
+        self.BREAK_ALL = False
         self.getting_cycle_thread = threading.Thread(target=self.getting_cycle, args=())
         self.getting_cycle_thread.start()
         self.init_main_ui()
@@ -274,6 +282,9 @@ class MainWindow(QWidget):
         if len(message.encode('utf-8')) > 256:
             QMessageBox.critical(None, 'FAIL', 'The message length cannot be more 256 bytes')
             return
+        if to_user not in self.messages:
+            self.messages[to_user] = []
+        self.messages[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
         self.send_inform_to_server(f'MESSAGE;{self.username};{message};{to_user}', 512)
         self.display_message(message)
 
@@ -281,17 +292,27 @@ class MainWindow(QWidget):
         if not self.find_user_input.text():
             QMessageBox.critical(None, 'FAIL', 'User "" does not exist')
             return
+        if self.find_user_input.text() in [self.contacts.item(i).text() for i in range(self.contacts.count())]:
+            for i in range(self.contacts.count()):
+                print(self.contacts.item(i).text())
+                if self.contacts.item(i).text() == self.find_user_input.text():
+                    self.contacts.setCurrentItem(self.contacts.item(i))
+            # self.contacts.setCurrentItem([self.contacts.item(i).text() for i in range(self.contacts.count())].index(self.find_user_input.text()))
+            self.change_companion()
+            self.find_user_input.setText('')
+            return
         self.getting_cycle_bool = False
         self.send_inform_to_server(f'FIND_USER;{self.find_user_input.text()}', 512)
         data = self.get_inform_form_server(512)
         if data == 'NONE':
             data = self.get_inform_form_server(512)
         if data == 'SUCCESS':
-            if self.find_user_input.text() not in [self.contacts.item(i).text() for i in range(self.contacts.count())]:
-                self.contacts.addItem(self.find_user_input.text())
-                self.contacts.scrollToBottom()
-            else:
-                QMessageBox.critical(None, 'FAIL', 'This user already your companion')
+            self.contacts.addItem(self.find_user_input.text())
+            self.contacts.scrollToBottom()
+            for i in range(self.contacts.count()):
+                if self.contacts.item(i).text() == self.find_user_input.text():
+                    self.contacts.setCurrentItem(self.contacts.item(i))
+            self.change_companion()
             self.find_user_input.setText('')
         else:
             QMessageBox.critical(None, 'FAIL', data[data.find(';') + 1:])
@@ -302,33 +323,42 @@ class MainWindow(QWidget):
         if self.username:
             self.send_inform_to_server(f'EXIT;{self.username}', 512)
             self.getting_cycle_bool = False
+            self.BREAK_ALL = True
+            folder_path = getcwd() + '\\data'
+            for item in listdir(folder_path):
+                item_path = path.join(folder_path, item)
+                if not path.isdir(item_path):
+                    remove(item_path)
         e.accept()
 
     def getting_cycle(self):
-        while self.getting_cycle_bool:
-            data = self.get_inform_form_server(512)
-            print(data)
-            command, args = data[:data.find(';')], data[data.find(';') + 1:]
-            match command:
-                case 'MESSAGE':
-                    from_user, message, to_user = (args[:args.find(';')],
-                                                   args[args.find(';') + 1:args.rfind(';')],
-                                                   args[args.rfind(';') + 1:])
-                    if self.username != from_user:
-                        if from_user not in self.messages and from_user != self.username:
-                            self.messages[from_user] = []
-                            self.contacts.addItem(from_user)
-                        self.messages[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
-                        if self.chat_header.text() == from_user:
-                            self.display_message_signal.emit(message, False)
-                    else:
-                        self.messages[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
-                        if self.chat_header.text() == to_user:
-                            self.display_message_signal.emit(message, True)
-                case 'NONE':
-                    pass
-                case 'FAIL':
-                    QMessageBox.critical(None, 'FAIL', args)
+        while True:
+            if self.BREAK_ALL:
+                break
+            while self.getting_cycle_bool:
+                data = self.get_inform_form_server(512)
+                print(data)
+                command, args = data[:data.find(';')], data[data.find(';') + 1:]
+                match command:
+                    case 'MESSAGE':
+                        from_user, message, to_user = (args[:args.find(';')],
+                                                       args[args.find(';') + 1:args.rfind(';')],
+                                                       args[args.rfind(';') + 1:])
+                        if self.username != from_user:
+                            if from_user not in self.messages and from_user != self.username:
+                                self.messages[from_user] = []
+                                self.contacts.addItem(from_user)
+                            self.messages[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                            if self.chat_header.text() == from_user:
+                                self.display_message_signal.emit(message, False)
+                        else:
+                            self.messages[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                            if self.chat_header.text() == to_user:
+                                self.display_message_signal.emit(message, True)
+                    case 'NONE':
+                        pass
+                    case 'FAIL':
+                        QMessageBox.critical(None, 'FAIL', args)
 
 
 if __name__ == '__main__':

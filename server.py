@@ -51,10 +51,20 @@ class Server:
 
     @staticmethod
     def get_file(conn):
+        def to_base62(n):
+            if n == 0:
+                return '0'
+            base62_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            result = []
+            while n > 0:
+                n, rem = divmod(n, 62)
+                result.append(base62_chars[rem])
+            return ''.join(reversed(result))
+
         f_name, f_size, buff = conn.recv(512).decode('utf-8').split(';')
         f_size = int(f_size)
-        path = f'{os.getcwd()}\\server_imgs'
-        with open(f'{path}\\{len(os.listdir(path))}{f_name[f_name.rfind("."):]}', 'wb') as f:
+        path = f'{os.getcwd()}\\files'
+        with open(f'{path}\\{to_base62(len(os.listdir(path)))}{f_name[f_name.rfind("."):]}', 'wb') as f:
             for i in range(f_size // 4096):
                 chunk = conn.recv(4096)
                 f.write(chunk)
@@ -123,13 +133,16 @@ class Server:
                     with open(f'messages/{to_user}.json', 'w', encoding='utf-8') as f:
                         json.dump(data, f)
 
+                case 'FILE':
+                    # ДОДЕЛАТЬ ФАЙЛЫ
+                    self.get_file(conn)
+
                 case 'EXIT':
                     print(self.online_users)
                     self.send_message(conn, 'NONE;', 512)
                     self.online_users[args].remove(conn)
                     conn.close()
                     print(self.online_users)
-                    # add deleting from self.online_users
                     break
 
                 case 'FIND_USER':
