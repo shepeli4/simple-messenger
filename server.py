@@ -1,7 +1,6 @@
 import threading
 import socket
 import json
-from datetime import datetime
 import os
 
 
@@ -50,7 +49,7 @@ class Server:
         print('file send')
 
     @staticmethod
-    def get_file(conn):
+    def get_file(conn) -> str:
         def to_base62(n):
             if n == 0:
                 return '0'
@@ -70,6 +69,7 @@ class Server:
                 f.write(chunk)
             chunk = conn.recv(f_size - f_size // 4096 * 4096)
             f.write(chunk)
+        return to_base62(len(os.listdir(path)))
 
     def handle_client(self, conn) -> None:
         while True:
@@ -122,20 +122,40 @@ class Server:
                     with open(f'messages/{from_user}.json', encoding='utf-8') as f:
                         data = json.load(f)
                     if to_user not in data: data[to_user] = []
-                    data[to_user].append([message, True, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    data[to_user].append([message, True, False])
                     with open(f'messages/{from_user}.json', 'w', encoding='utf-8') as f:
                         json.dump(data, f)
 
                     with open(f'messages/{to_user}.json', encoding='utf-8') as f:
                         data = json.load(f)
                     if from_user not in data: data[from_user] = []
-                    data[from_user].append([message, False, datetime.now().strftime('%Y.%m.%dT%H:%M:%S')])
+                    data[from_user].append([message, False, False])
                     with open(f'messages/{to_user}.json', 'w', encoding='utf-8') as f:
                         json.dump(data, f)
 
                 case 'FILE':
-                    # ДОДЕЛАТЬ ФАЙЛЫ
-                    self.get_file(conn)
+                    from_user, to_user = args.split(';')
+                    file_name = self.get_file(conn)
+
+                    for i in self.online_users[to_user]:
+                        self.send_message(i, f'FILE;{from_user};{file_name};{to_user}', 512)
+                    for i in self.online_users[from_user]:
+                        if i != conn:
+                            self.send_message(i, f'FILE;{from_user};{file_name};{to_user}', 512)
+
+                    with open(f'messages/{from_user}.json', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if to_user not in data: data[to_user] = []
+                    data[to_user].append([file_name, True, True])
+                    with open(f'messages/{from_user}.json', 'w', encoding='utf-8') as f:
+                        json.dump(data, f)
+
+                    with open(f'messages/{to_user}.json', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if from_user not in data: data[from_user] = []
+                    data[from_user].append([file_name, False, True])
+                    with open(f'messages/{to_user}.json', 'w', encoding='utf-8') as f:
+                        json.dump(data, f)
 
                 case 'EXIT':
                     print(self.online_users)
