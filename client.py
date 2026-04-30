@@ -3,7 +3,8 @@ import os
 import threading
 import socket
 import sys
-from random import choice
+
+from Demos.win32ts_logoff_disconnected import username
 from PyQt6.QtWidgets import (QWidget, QApplication, QPushButton, QLabel, QLineEdit, QVBoxLayout, QMessageBox, QListWidgetItem,
                              QHBoxLayout, QListWidget, QFrame, QFileDialog)
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -24,7 +25,7 @@ class MessageBubble(QWidget):
                 if file_name in listdir(f'{os.getcwd()}\\data\\'):
                     os.startfile(f'{os.getcwd()}\\data\\{file_name}')
                 else:
-                    print('file_not_found') # присылать файл
+                    print('file_not_found') # пырисылать файл
 
             self.btn = QPushButton(text)
             self.btn.setMaximumWidth(400)
@@ -33,11 +34,11 @@ class MessageBubble(QWidget):
             if is_user:
                 layout.addStretch()
                 layout.addWidget(self.btn)
-                self.btn.setStyleSheet(f"color: #99c3ff; background-color: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 10px;")
+                self.btn.setStyleSheet(f"color: #7587a6; background-color: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 10px; text-decoration: underline;")
             else:
                 layout.addWidget(self.btn)
                 layout.addStretch()
-                self.btn.setStyleSheet(f"color: #99c3ff; background-color: #141414; border: 1px solid #dad085; border-radius: 10px; padding: 10px;")
+                self.btn.setStyleSheet(f"color: #7587a6; background-color: #141414; border: 1px solid #dad085; border-radius: 10px; padding: 10px; text-decoration: underline;")
         else:
             self.label = QLabel(text)
             self.label.setWordWrap(True)
@@ -98,7 +99,7 @@ class MainWindow(QWidget):
         self.layout.addStretch()
 
         self.setLayout(self.layout)
-        self.setWindowTitle(choice(['🍗', 'Welcome']))
+        self.setWindowTitle('🍗')
         self.setStyleSheet('background-color: #141414;')
         self.setFixedSize(1200, 600)
 
@@ -214,6 +215,7 @@ class MainWindow(QWidget):
             QMessageBox.critical(None, 'FAIL', data[data.find(';'):])
 
     def launch(self):
+        self.setWindowTitle(self.username)
         self.get_file()
         with open(f'data/{self.username}.json', encoding='utf-8') as f:
             self.messages = json.load(f)
@@ -250,10 +252,11 @@ class MainWindow(QWidget):
         f_size = int(f_size)
         if file_name: f_name = file_name
         with open(f'{getcwd()}\\data\\{f_name}', 'wb') as f:
-            for i in range(f_size // 4096):
-                chunk = self.sock.recv(4096)
+            for i in range(f_size // 1_048_576):
+                # print(i, f_size, f_size // 4096)
+                chunk = self.sock.recv(1_048_576)
                 f.write(chunk)
-            chunk = self.sock.recv(f_size - f_size // 4096 * 4096)
+            chunk = self.sock.recv(f_size - f_size // 1_048_576 * 1_048_576)
             f.write(chunk)
 
     def send_file(self, file_path):
@@ -262,12 +265,78 @@ class MainWindow(QWidget):
         # file_name;file_size(bytes);\x00\x00\x00\x00...
         self.send_inform_to_server(f'{f_name};{file_size}', 512)
         with open(file_path, 'rb') as f:
-            chunk = f.read(4096)
+            chunk = f.read(1_048_576)
             while chunk:
                 self.sock.send(chunk)
-                chunk = f.read(4096)
+                chunk = f.read(1_048_576)
+
+    def create_bubble(self, text, is_user=True, is_file=False):
+        bubble = QWidget()
+        layout = QHBoxLayout(bubble)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        if is_file:
+            def open_file(file_name):
+                print(f'{os.getcwd()}\\data\\{file_name}')
+                if file_name in listdir(f'{os.getcwd()}\\data\\'):
+                    os.startfile(f'{os.getcwd()}\\data\\{file_name}')
+                else:
+                    self.getting_cycle_bool = False
+                    self.send_inform_to_server(f'GET_FILE;{file_name}', 512)
+                    data = self.get_inform_form_server(128)
+                    if data == 'NONE':
+                        data = self.get_inform_form_server(128)
+
+                    if data == 'SUCCESS':
+                        self.get_file()
+                        os.startfile(f'{os.getcwd()}\\data\\{file_name}')
+                    else:
+                        QMessageBox.critical(None, 'FAIL', data[data.find(';') + 1:])
+                    self.getting_cycle_bool = True
+
+            btn = QPushButton(text)
+            btn.setMaximumWidth(400)
+            btn.clicked.connect(lambda: open_file(text))
+
+            if is_user:
+                layout.addStretch()
+                layout.addWidget(btn)
+                btn.setStyleSheet(
+                    f"color: #7587a6; background-color: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 10px; text-decoration: underline;")
+            else:
+                layout.addWidget(btn)
+                layout.addStretch()
+                btn.setStyleSheet(
+                    f"color: #7587a6; background-color: #141414; border: 1px solid #dad085; border-radius: 10px; padding: 10px; text-decoration: underline;")
+        else:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            label.setMaximumWidth(400)  # Ограничиваем ширину сообщения
+
+            # Стили баблов: пользователь справа, собеседник слева
+            if is_user:
+                layout.addStretch()
+                layout.addWidget(label)
+                label.setStyleSheet(
+                    f"background-color: #1b1b1b; border: 1px solid #333; border-radius: 10px; padding: 10px;")
+            else:
+                layout.addWidget(label)
+                layout.addStretch()
+                label.setStyleSheet(
+                    f"background-color: #141414; border: 1px solid #dad085; border-radius: 10px; padding: 10px;")
+        return bubble
 
     def display_message(self, text, is_user=True, is_file=False):
+        if is_user: self.msg_input.clear()
+        item = QListWidgetItem(self.chat_list)
+        bubble = self.create_bubble(text, is_user, is_file)
+        # Устанавливаем размер ячейки под размер виджета
+        item.setSizeHint(bubble.sizeHint())
+        self.chat_list.addItem(item)
+        self.chat_list.setItemWidget(item, bubble)
+        self.chat_list.scrollToBottom()
+
+    '''def display_message(self, text, is_user=True, is_file=False):
         if is_user: self.msg_input.clear()
         item = QListWidgetItem(self.chat_list)
         bubble = MessageBubble(text, is_user, is_file)
@@ -275,7 +344,7 @@ class MainWindow(QWidget):
         item.setSizeHint(bubble.sizeHint())
         self.chat_list.addItem(item)
         self.chat_list.setItemWidget(item, bubble)
-        self.chat_list.scrollToBottom()
+        self.chat_list.scrollToBottom()'''
 
     def clear_layout(self, layout):
         if layout is not None:
@@ -388,6 +457,8 @@ class MainWindow(QWidget):
                             if self.chat_header.text() == from_user:
                                 self.display_message_signal.emit(message, False, True)
                         else:
+                            if to_user not in self.messages:
+                                self.messages[to_user] = []
                             self.messages[to_user].append([message, True, False])
                             if self.chat_header.text() == to_user:
                                 self.display_message_signal.emit(message, True, True)

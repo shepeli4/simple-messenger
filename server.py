@@ -42,10 +42,10 @@ class Server:
         # file_name;file_size(bytes);\x00\x00\x00\x00...
         self.send_message(conn, f'{f_name};{file_size}', 512)
         with open(path, 'rb') as f:
-            chunk = f.read(4096)
+            chunk = f.read(1_048_576)
             while chunk:
                 conn.send(chunk)
-                chunk = f.read(4096)
+                chunk = f.read(1_048_576)
         print('file send')
 
     @staticmethod
@@ -63,13 +63,14 @@ class Server:
         f_name, f_size, buff = conn.recv(512).decode('utf-8').split(';')
         f_size = int(f_size)
         path = f'{os.getcwd()}\\files'
-        with open(f'{path}\\{to_base62(len(os.listdir(path)))}{f_name[f_name.rfind("."):]}', 'wb') as f:
-            for i in range(f_size // 4096):
-                chunk = conn.recv(4096)
+        f_name = f'{to_base62(len(os.listdir(path)))}{f_name[f_name.rfind("."):]}'
+        with open(f'{path}\\{f_name}', 'wb') as f:
+            for i in range(f_size // 1_048_576):
+                chunk = conn.recv(1_048_576)
                 f.write(chunk)
-            chunk = conn.recv(f_size - f_size // 4096 * 4096)
+            chunk = conn.recv(f_size - f_size // 1_048_576 * 1_048_576)
             f.write(chunk)
-        return to_base62(len(os.listdir(path)))
+        return f_name
 
     def handle_client(self, conn) -> None:
         while True:
@@ -140,8 +141,7 @@ class Server:
                     for i in self.online_users[to_user]:
                         self.send_message(i, f'FILE;{from_user};{file_name};{to_user}', 512)
                     for i in self.online_users[from_user]:
-                        if i != conn:
-                            self.send_message(i, f'FILE;{from_user};{file_name};{to_user}', 512)
+                        self.send_message(i, f'FILE;{from_user};{file_name};{to_user}', 512)
 
                     with open(f'messages/{from_user}.json', encoding='utf-8') as f:
                         data = json.load(f)
@@ -156,6 +156,15 @@ class Server:
                     data[from_user].append([file_name, False, True])
                     with open(f'messages/{to_user}.json', 'w', encoding='utf-8') as f:
                         json.dump(data, f)
+
+                case 'GET_FILE':
+                    # file_name = args
+                    self.send_message(conn, 'NONE', 128)
+                    if args in os.listdir(f'{os.getcwd()}\\files\\'):
+                        self.send_message(conn, 'SUCCESS', 128)
+                        self.send_file(conn, f'{os.getcwd()}\\files\\{args}')
+                    else:
+                        self.send_message(conn, 'FAIL;No such file in directory', 128)
 
                 case 'EXIT':
                     print(self.online_users)
