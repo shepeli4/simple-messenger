@@ -4,7 +4,6 @@ import threading
 import socket
 import sys
 
-from Demos.win32ts_logoff_disconnected import username
 from PyQt6.QtWidgets import (QWidget, QApplication, QPushButton, QLabel, QLineEdit, QVBoxLayout, QMessageBox, QListWidgetItem,
                              QHBoxLayout, QListWidget, QFrame, QFileDialog)
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -412,12 +411,12 @@ class MainWindow(QWidget):
             self.getting_cycle_bool = False
             self.BREAK_ALL = True
             folder_path = getcwd() + '\\data'
-            '''
+
             for item in listdir(folder_path):
                 item_path = path.join(folder_path, item)
                 if not path.isdir(item_path):
                     remove(item_path)
-            '''
+
         e.accept()
 
     def getting_cycle(self):
@@ -453,13 +452,13 @@ class MainWindow(QWidget):
                             if from_user not in self.messages and from_user != self.username:
                                 self.messages[from_user] = []
                                 self.contacts.addItem(from_user)
-                            self.messages[from_user].append([message, False, False])
+                            self.messages[from_user].append([message, False, True])
                             if self.chat_header.text() == from_user:
                                 self.display_message_signal.emit(message, False, True)
                         else:
                             if to_user not in self.messages:
                                 self.messages[to_user] = []
-                            self.messages[to_user].append([message, True, False])
+                            self.messages[to_user].append([message, True, True])
                             if self.chat_header.text() == to_user:
                                 self.display_message_signal.emit(message, True, True)
 
